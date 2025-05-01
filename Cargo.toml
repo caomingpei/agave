@@ -509,7 +509,7 @@ solana-rpc-client-api = { path = "rpc-client-api", version = "=2.2.4" }
 solana-rpc-client-nonce-utils = { path = "rpc-client-nonce-utils", version = "=2.2.4" }
 solana-runtime = { path = "runtime", version = "=2.2.4" }
 solana-runtime-transaction = { path = "runtime-transaction", version = "=2.2.4" }
-solana-sbpf = "=0.10.0"
+solana-sbpf = { path = "../sbpf", version = "=0.10.0" }
 solana-sdk = "=2.2.1"
 solana-sdk-ids = "=2.2.1"
 solana-sdk-macro = "=2.2.1"
@@ -656,3 +656,4 @@ crossbeam-epoch = { git = "https://github.com/anza-xyz/crossbeam", rev = "fd279d
 # comments and the overrides in sync.
 solana-curve25519 = { path = "curves/curve25519" }
 solana-zk-sdk = { path = "zk-sdk" }
+solana-sbpf = { path = "../sbpf", version = "=0.10.0" }
