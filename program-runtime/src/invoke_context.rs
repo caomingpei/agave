@@ -43,6 +43,8 @@ use {
     },
 };
 
+use instrument::Instrumenter;
+
 pub type BuiltinFunctionWithContext = BuiltinFunction<InvokeContext<'static>>;
 
 /// Adapter so we can unify the interfaces of built-in programs and syscalls
@@ -204,6 +206,7 @@ pub struct InvokeContext<'a> {
     pub timings: ExecuteDetailsTimings,
     pub syscall_context: Vec<Option<SyscallContext>>,
     traces: Vec<Vec<[u64; 12]>>,
+    pub instrumenter: Option<Rc<RefCell<Instrumenter>>>,
 }
 
 impl<'a> InvokeContext<'a> {
@@ -226,6 +229,31 @@ impl<'a> InvokeContext<'a> {
             timings: ExecuteDetailsTimings::default(),
             syscall_context: Vec::new(),
             traces: Vec::new(),
+            instrumenter: None,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_instrumenter(
+        transaction_context: &'a mut TransactionContext,
+        program_cache_for_tx_batch: &'a mut ProgramCacheForTxBatch,
+        environment_config: EnvironmentConfig<'a>,
+        log_collector: Option<Rc<RefCell<LogCollector>>>,
+        compute_budget: ComputeBudget,
+        instrumenter: Rc<RefCell<Instrumenter>>,
+    ) -> Self {
+        Self {
+            transaction_context,
+            program_cache_for_tx_batch,
+            environment_config,
+            log_collector,
+            compute_budget,
+            compute_meter: RefCell::new(compute_budget.compute_unit_limit),
+            execute_time: None,
+            timings: ExecuteDetailsTimings::default(),
+            syscall_context: Vec::new(),
+            traces: Vec::new(),
+            instrumenter: Some(instrumenter),
         }
     }
 
@@ -478,6 +506,31 @@ impl<'a> InvokeContext<'a> {
             .and(self.pop())
     }
 
+    /// NovaFuzz Processes an instruction with instrumenter
+    pub fn process_instruction_with_instrumenter(
+        &mut self,
+        instruction_data: &[u8],
+        instruction_accounts: &[InstructionAccount],
+        program_indices: &[IndexOfAccount],
+        compute_units_consumed: &mut u64,
+        timings: &mut ExecuteTimings,
+        instrumenter: Rc<RefCell<Instrumenter>>,
+    ) -> Result<(), InstructionError> {
+        *compute_units_consumed = 0;
+        self.transaction_context
+            .get_next_instruction_context()?
+            .configure(program_indices, instruction_accounts, instruction_data);
+        self.push()?;
+        self.process_executable_chain_with_instrumenter(
+            compute_units_consumed,
+            timings,
+            instrumenter,
+        )
+        // MUST pop if and only if `push` succeeded, independent of `result`.
+        // Thus, the `.and()` instead of an `.and_then()`.
+        .and(self.pop())
+    }
+
     /// Processes a precompile instruction
     pub fn process_precompile<'ix_data>(
         &mut self,
@@ -566,6 +619,107 @@ impl<'a> InvokeContext<'a> {
             unsafe { std::mem::transmute::<&mut InvokeContext, &mut InvokeContext>(self) },
             empty_memory_mapping,
             0,
+            self.instrumenter.clone(),
+        );
+        vm.invoke_function(function);
+        let result = match vm.program_result {
+            ProgramResult::Ok(_) => {
+                stable_log::program_success(&logger, &program_id);
+                Ok(())
+            }
+            ProgramResult::Err(ref err) => {
+                if let EbpfError::SyscallError(syscall_error) = err {
+                    if let Some(instruction_err) = syscall_error.downcast_ref::<InstructionError>()
+                    {
+                        stable_log::program_failure(&logger, &program_id, instruction_err);
+                        Err(instruction_err.clone())
+                    } else {
+                        stable_log::program_failure(&logger, &program_id, syscall_error);
+                        Err(InstructionError::ProgramFailedToComplete)
+                    }
+                } else {
+                    stable_log::program_failure(&logger, &program_id, err);
+                    Err(InstructionError::ProgramFailedToComplete)
+                }
+            }
+        };
+        let post_remaining_units = self.get_remaining();
+        *compute_units_consumed = pre_remaining_units.saturating_sub(post_remaining_units);
+
+        if builtin_id == program_id && result.is_ok() && *compute_units_consumed == 0 {
+            return Err(InstructionError::BuiltinProgramsMustConsumeComputeUnits);
+        }
+
+        timings
+            .execute_accessories
+            .process_instructions
+            .process_executable_chain_us += process_executable_chain_time.end_as_us();
+        result
+    }
+
+    /// NovaFuzz Calls the instruction's program entrypoint method
+    fn process_executable_chain_with_instrumenter(
+        &mut self,
+        compute_units_consumed: &mut u64,
+        timings: &mut ExecuteTimings,
+        instrumenter: Rc<RefCell<Instrumenter>>,
+    ) -> Result<(), InstructionError> {
+        let instruction_context = self.transaction_context.get_current_instruction_context()?;
+        let process_executable_chain_time = Measure::start("process_executable_chain_time");
+
+        let builtin_id = {
+            debug_assert!(instruction_context.get_number_of_program_accounts() <= 1);
+            let borrowed_root_account = instruction_context
+                .try_borrow_program_account(self.transaction_context, 0)
+                .map_err(|_| InstructionError::UnsupportedProgramId)?;
+            let owner_id = borrowed_root_account.get_owner();
+            if native_loader::check_id(owner_id) {
+                *borrowed_root_account.get_key()
+            } else {
+                *owner_id
+            }
+        };
+
+        // The Murmur3 hash value (used by RBPF) of the string "entrypoint"
+        const ENTRYPOINT_KEY: u32 = 0x71E3CF81;
+        let entry = self
+            .program_cache_for_tx_batch
+            .find(&builtin_id)
+            .ok_or(InstructionError::UnsupportedProgramId)?;
+        let function = match &entry.program {
+            ProgramCacheEntryType::Builtin(program) => program
+                .get_function_registry()
+                .lookup_by_key(ENTRYPOINT_KEY)
+                .map(|(_name, function)| function),
+            _ => None,
+        }
+        .ok_or(InstructionError::UnsupportedProgramId)?;
+        entry.ix_usage_counter.fetch_add(1, Ordering::Relaxed);
+
+        let program_id = *instruction_context.get_last_program_key(self.transaction_context)?;
+        self.transaction_context
+            .set_return_data(program_id, Vec::new())?;
+        let logger = self.get_log_collector();
+        stable_log::program_invoke(&logger, &program_id, self.get_stack_height());
+        let pre_remaining_units = self.get_remaining();
+        // In program-runtime v2 we will create this VM instance only once per transaction.
+        // `program_runtime_environment_v2.get_config()` will be used instead of `mock_config`.
+        // For now, only built-ins are invoked from here, so the VM and its Config are irrelevant.
+        let mock_config = Config::default();
+        let empty_memory_mapping =
+            MemoryMapping::new(Vec::new(), &mock_config, SBPFVersion::V0).unwrap();
+        println!("Invoke Instrumenter: {:?}", instrumenter);
+        let mut vm = EbpfVm::new(
+            self.program_cache_for_tx_batch
+                .environments
+                .program_runtime_v2
+                .clone(),
+            SBPFVersion::V0,
+            // Removes lifetime tracking
+            unsafe { std::mem::transmute::<&mut InvokeContext, &mut InvokeContext>(self) },
+            empty_memory_mapping,
+            0,
+            Some(instrumenter),
         );
         vm.invoke_function(function);
         let result = match vm.program_result {

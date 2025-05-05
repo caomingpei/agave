@@ -10,6 +10,7 @@ license = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+instrument = { workspace = true }
 base64 = { workspace = true }
 bincode = { workspace = true }
 enum-iterator = { workspace = true }

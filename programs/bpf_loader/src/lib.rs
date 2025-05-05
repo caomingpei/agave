@@ -288,6 +288,7 @@ fn create_vm<'a, 'b>(
         invoke_context,
         memory_mapping,
         stack_size,
+        invoke_context.instrumenter.clone(),
     ))
 }
 
