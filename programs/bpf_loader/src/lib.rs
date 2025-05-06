@@ -288,7 +288,7 @@ fn create_vm<'a, 'b>(
         invoke_context,
         memory_mapping,
         stack_size,
-        invoke_context.instrumenter.clone(),
+        invoke_context.depth_manager.clone(),
     ))
 }
 

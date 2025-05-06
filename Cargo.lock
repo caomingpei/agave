@@ -83,7 +83,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "clap 2.33.3",
- "memmap2 0.5.10",
+ "memmap2",
  "rayon",
  "solana-accounts-db",
  "solana-clap-utils",
@@ -1626,7 +1626,8 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "memmap2 0.9.5",
+ "novafuzz-config",
+ "novafuzz-types",
  "serde",
  "zmq",
 ]
@@ -3521,6 +3522,7 @@ dependencies = [
  "bincode",
  "bytemuck",
  "common",
+ "novafuzz-config",
  "novafuzz-types",
 ]
 
@@ -3990,15 +3992,6 @@ name = "memmap2"
 version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83faa42c0a078c393f6b29d5db232d8be22776a891f8f56e5284faee4a20b327"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "memmap2"
-version = "0.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd3f7eed9d3848f8b98834af67102b720745c4ec028fcd0aa0239277e7de374f"
 dependencies = [
  "libc",
 ]
@@ -6299,7 +6292,7 @@ dependencies = [
  "libsecp256k1",
  "log",
  "lz4",
- "memmap2 0.5.10",
+ "memmap2",
  "memoffset 0.9.1",
  "modular-bitfield",
  "num_cpus",
@@ -6717,7 +6710,7 @@ dependencies = [
  "bytemuck_derive",
  "fs_extra",
  "log",
- "memmap2 0.5.10",
+ "memmap2",
  "modular-bitfield",
  "num_enum",
  "rand 0.8.5",
@@ -7801,7 +7794,7 @@ dependencies = [
  "bv",
  "im",
  "log",
- "memmap2 0.5.10",
+ "memmap2",
  "serde",
  "serde_derive",
  "serde_with",
@@ -7856,7 +7849,7 @@ checksum = "968dabd2b92d57131473eddbd475339da530e14f54397386abf303de3a2595a2"
 dependencies = [
  "bincode",
  "chrono",
- "memmap2 0.5.10",
+ "memmap2",
  "serde",
  "serde_derive",
  "solana-account",
@@ -9380,7 +9373,7 @@ dependencies = [
  "libsecp256k1",
  "log",
  "lz4",
- "memmap2 0.5.10",
+ "memmap2",
  "memoffset 0.9.1",
  "mockall",
  "modular-bitfield",

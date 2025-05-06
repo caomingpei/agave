@@ -43,7 +43,7 @@ use {
     },
 };
 
-use instrument::Instrumenter;
+use instrument::DepthManager;
 
 pub type BuiltinFunctionWithContext = BuiltinFunction<InvokeContext<'static>>;
 
@@ -206,7 +206,7 @@ pub struct InvokeContext<'a> {
     pub timings: ExecuteDetailsTimings,
     pub syscall_context: Vec<Option<SyscallContext>>,
     traces: Vec<Vec<[u64; 12]>>,
-    pub instrumenter: Option<Rc<RefCell<Instrumenter>>>,
+    pub depth_manager: Option<Rc<RefCell<DepthManager>>>,
 }
 
 impl<'a> InvokeContext<'a> {
@@ -229,7 +229,7 @@ impl<'a> InvokeContext<'a> {
             timings: ExecuteDetailsTimings::default(),
             syscall_context: Vec::new(),
             traces: Vec::new(),
-            instrumenter: None,
+            depth_manager: None,
         }
     }
 
@@ -240,7 +240,7 @@ impl<'a> InvokeContext<'a> {
         environment_config: EnvironmentConfig<'a>,
         log_collector: Option<Rc<RefCell<LogCollector>>>,
         compute_budget: ComputeBudget,
-        instrumenter: Rc<RefCell<Instrumenter>>,
+        depth_manager: Rc<RefCell<DepthManager>>,
     ) -> Self {
         Self {
             transaction_context,
@@ -253,7 +253,7 @@ impl<'a> InvokeContext<'a> {
             timings: ExecuteDetailsTimings::default(),
             syscall_context: Vec::new(),
             traces: Vec::new(),
-            instrumenter: Some(instrumenter),
+            depth_manager: Some(depth_manager),
         }
     }
 
@@ -514,7 +514,7 @@ impl<'a> InvokeContext<'a> {
         program_indices: &[IndexOfAccount],
         compute_units_consumed: &mut u64,
         timings: &mut ExecuteTimings,
-        instrumenter: Rc<RefCell<Instrumenter>>,
+        instrumenter: Rc<RefCell<DepthManager>>,
     ) -> Result<(), InstructionError> {
         *compute_units_consumed = 0;
         self.transaction_context
@@ -619,7 +619,7 @@ impl<'a> InvokeContext<'a> {
             unsafe { std::mem::transmute::<&mut InvokeContext, &mut InvokeContext>(self) },
             empty_memory_mapping,
             0,
-            self.instrumenter.clone(),
+            self.depth_manager.clone(),
         );
         vm.invoke_function(function);
         let result = match vm.program_result {
@@ -662,7 +662,7 @@ impl<'a> InvokeContext<'a> {
         &mut self,
         compute_units_consumed: &mut u64,
         timings: &mut ExecuteTimings,
-        instrumenter: Rc<RefCell<Instrumenter>>,
+        instrumenter: Rc<RefCell<DepthManager>>,
     ) -> Result<(), InstructionError> {
         let instruction_context = self.transaction_context.get_current_instruction_context()?;
         let process_executable_chain_time = Measure::start("process_executable_chain_time");
