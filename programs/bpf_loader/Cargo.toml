@@ -10,6 +10,8 @@ license = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+instrument = { workspace = true }
+novafuzz-types = { workspace = true }
 bincode = { workspace = true }
 libsecp256k1 = { workspace = true }
 qualifier_attr = { workspace = true }

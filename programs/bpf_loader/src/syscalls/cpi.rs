@@ -1,3 +1,5 @@
+use instrument::DataCollector;
+use novafuzz_types::UnifiedAddress;
 use {
     super::*,
     crate::serialization::account_data_region_memory_state,
@@ -14,6 +16,7 @@ use {
     solana_transaction_context::BorrowedAccount,
     std::{mem, ptr},
 };
+
 // consts inlined to avoid solana-program dep
 const MAX_CPI_INSTRUCTION_DATA_LEN: u64 = 10 * 1024;
 #[cfg(test)]
@@ -1086,6 +1089,7 @@ fn cpi_common<S: SyscallInvokeSigned>(
     signers_seeds_addr: u64,
     signers_seeds_len: u64,
     memory_mapping: &MemoryMapping,
+    instrument_collector: &mut DataCollector,
 ) -> Result<u64, Error> {
     // CPI entry.
     //
@@ -1118,6 +1122,62 @@ fn cpi_common<S: SyscallInvokeSigned>(
     let (instruction_accounts, program_indices) =
         invoke_context.prepare_instruction(&instruction, &signers)?;
     check_authorized_program(&instruction.program_id, &instruction.data, invoke_context)?;
+
+    // NovFuzz record creation syscall
+    let (account_infos, account_info_keys) = translate_account_infos(
+        account_infos_addr,
+        account_infos_len,
+        |account_info: &AccountInfo| account_info.key as *const _ as u64,
+        memory_mapping,
+        invoke_context,
+    )?;
+    let novafuzz_account_infos = account_info_keys.clone();
+    let novafuzz_instruction = &instruction;
+
+    // Store the seeds for instruction call.
+    // let mut novafuzz_seeds = Vec::new();
+    // NovaFuzz: Translate the signers seeds part, gain two seeds
+    let mut novafuzz_sign_seeds = Vec::new();
+    if signers_seeds_len > 0 {
+        let signers_seeds = translate_slice::<&[&[u8]]>(
+            memory_mapping,
+            signers_seeds_addr,
+            signers_seeds_len,
+            invoke_context.get_check_aligned(),
+        )?;
+        if signers_seeds.len() > MAX_SIGNERS {
+            return Err(Box::new(SyscallError::TooManySigners));
+        }
+        for signer_seeds in signers_seeds.iter() {
+            let untranslated_seeds = translate_slice::<&[u8]>(
+                memory_mapping,
+                signer_seeds.as_ptr() as *const _ as u64,
+                signer_seeds.len() as u64,
+                invoke_context.get_check_aligned(),
+            )?;
+            if untranslated_seeds.len() > MAX_SEEDS {
+                return Err(Box::new(InstructionError::MaxSeedLengthExceeded));
+            }
+            let seeds = untranslated_seeds
+                .iter()
+                .map(|untranslated_seed| {
+                    translate_slice::<u8>(
+                        memory_mapping,
+                        untranslated_seed.as_ptr() as *const _ as u64,
+                        untranslated_seed.len() as u64,
+                        invoke_context.get_check_aligned(),
+                    )
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+
+            for seed in seeds.iter() {
+                novafuzz_sign_seeds.push(seed.to_vec());
+            }
+        }
+        instrument_collector
+            .invoke_record
+            .add_pda_seed(novafuzz_sign_seeds.clone());
+    }
 
     let mut accounts = S::translate_accounts(
         &instruction_accounts,
@@ -1180,6 +1240,7 @@ fn cpi_common<S: SyscallInvokeSigned>(
                 caller_account,
                 &mut callee_account,
                 direct_mapping,
+                instrument_collector,
             )?;
         }
     }
@@ -1326,6 +1387,7 @@ fn update_caller_account(
     caller_account: &mut CallerAccount,
     callee_account: &mut BorrowedAccount<'_>,
     direct_mapping: bool,
+    instrument_collector: &mut DataCollector, // NovaFuzz: add instrument data_collector
 ) -> Result<(), Error> {
     *caller_account.lamports = callee_account.get_lamports();
     *caller_account.owner = *callee_account.get_owner();
@@ -1465,6 +1527,23 @@ fn update_caller_account(
         }
         // this is the len field in the AccountInfo::data slice
         *caller_account.ref_to_len_in_vm.get_mut()? = post_len as u64;
+
+        for i in 0..post_len {
+            // print the vm_addr for the caller account, in hex format
+            // println!("caller_account.vm_data_addr[{}]: {:x}", i, caller_account.vm_data_addr+i as u64);
+            let realloc_addr = caller_account.vm_data_addr + i as u64;
+            let attribute = instrument_collector
+                .semantic_input
+                .get(&(realloc_addr - ebpf::MM_INPUT_START));
+            if let Some(attr) = attribute {
+                instrument_collector.invoke_record.add_update_data(
+                    UnifiedAddress::address_mapping(realloc_addr, 1)[0],
+                    attr.clone(),
+                );
+            } else {
+                println!("syscall/cpi.rs/update_caller_account: caller_account attribute is none");
+            }
+        }
 
         // this is the len field in the serialized parameters
         let serialized_len_ptr = translate_type_mut::<u64>(

@@ -171,6 +171,7 @@ check-cfg = [
 
 [workspace.dependencies]
 instrument = { path = "../instrument"}
+novafuzz-types = { path = "../types" }
 Inflector = "0.11.4"
 axum = "0.7.9"
 agave-banking-stage-ingress-types = { path = "banking-stage-ingress-types", version = "=2.2.4" }
