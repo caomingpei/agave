@@ -1541,9 +1541,16 @@ fn update_caller_account(
                     attr.clone(),
                 );
             } else {
-                println!("syscall/cpi.rs/update_caller_account: caller_account attribute is none");
+                continue;
+                // NovaFuzz Todo : Need to process to differ the simulated and real case.
+                // println!(
+                //     "syscall/cpi.rs/update_caller_account: caller_account owner: {:?} attribute vm_addr: {:?} is none",
+                //     &caller_account.owner, realloc_addr,
+                // );
             }
         }
+
+        println!("prev_len: {:?} post_len: {:?}", prev_len, post_len);
 
         // this is the len field in the serialized parameters
         let serialized_len_ptr = translate_type_mut::<u64>(

@@ -75,6 +75,8 @@ mod logging;
 mod mem_ops;
 mod sysvar;
 
+use instrument::DataCollector;
+
 /// Maximum signers
 const MAX_SIGNERS: usize = 16;
 
@@ -923,6 +925,7 @@ declare_builtin_function!(
         address_addr: u64,
         bump_seed_addr: u64,
         memory_mapping: &mut MemoryMapping,
+        instrument_collector: &mut DataCollector,
     ) -> Result<u64, Error> {
         let cost = invoke_context
             .get_compute_budget()
@@ -967,6 +970,12 @@ declare_builtin_function!(
                     }
                     *bump_seed_ref = bump_seed[0];
                     address.copy_from_slice(new_address.as_ref());
+
+                    let preserved_seeds: Vec<Vec<u8>> = seeds_with_bump.iter()
+                    .map(|slice| slice.to_vec())
+                    .collect();
+                    instrument_collector.invoke_record.add_try_seed(preserved_seeds);
+
                     return Ok(0);
                 }
             }
