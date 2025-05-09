@@ -4137,6 +4137,7 @@ version = "0.1.0"
 dependencies = [
  "novafuzz-config",
  "serde",
+ "solana-pubkey",
 ]
 
 [[package]]

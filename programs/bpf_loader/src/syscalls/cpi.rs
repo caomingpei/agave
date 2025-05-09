@@ -1,5 +1,5 @@
 use instrument::DataCollector;
-use novafuzz_types::UnifiedAddress;
+use novafuzz_types::vm::UnifiedAddress;
 use {
     super::*,
     crate::serialization::account_data_region_memory_state,
