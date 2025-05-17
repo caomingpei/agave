@@ -3460,7 +3460,6 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bytemuck",
- "novafuzz-config",
  "novafuzz-types",
 ]
 
@@ -4128,14 +4127,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61807f77802ff30975e01f4f071c8ba10c022052f98b3294119f3e615d13e5be"
 
 [[package]]
-name = "novafuzz-config"
-version = "0.1.0"
-
-[[package]]
 name = "novafuzz-types"
 version = "0.1.0"
 dependencies = [
- "novafuzz-config",
  "serde",
  "solana-pubkey",
 ]
@@ -9423,7 +9417,6 @@ dependencies = [
  "instrument",
  "libc",
  "log",
- "novafuzz-config",
  "novafuzz-types",
  "rand 0.8.5",
  "rustc-demangle",
