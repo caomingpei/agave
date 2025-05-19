@@ -970,6 +970,7 @@ declare_builtin_function!(
                     }
                     *bump_seed_ref = bump_seed[0];
                     address.copy_from_slice(new_address.as_ref());
+                    instrument_collector.invoke_record.add_find_pda_address(new_address.clone());
 
                     let preserved_seeds: Vec<Vec<u8>> = seeds_with_bump.iter()
                     .map(|slice| slice.to_vec())
