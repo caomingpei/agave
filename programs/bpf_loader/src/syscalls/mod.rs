@@ -760,10 +760,16 @@ fn translate_string_and_do(
     len: u64,
     check_aligned: bool,
     work: &mut dyn FnMut(&str) -> Result<u64, Error>,
+    instrument_collector: &mut DataCollector,
 ) -> Result<u64, Error> {
     let buf = translate_slice::<u8>(memory_mapping, addr, len, check_aligned)?;
     match from_utf8(buf) {
-        Ok(message) => work(message),
+        Ok(message) => {
+            instrument_collector
+                .invoke_record
+                .add_log_info(message.to_string());
+            work(message)
+        }
         Err(err) => Err(SyscallError::InvalidString(err, buf.to_vec()).into()),
     }
 }
@@ -799,6 +805,7 @@ declare_builtin_function!(
         column: u64,
         _arg5: u64,
         memory_mapping: &mut MemoryMapping,
+        instrument_collector: &mut DataCollector,
     ) -> Result<u64, Error> {
         consume_compute_meter(invoke_context, len)?;
 
@@ -808,6 +815,7 @@ declare_builtin_function!(
             len,
             invoke_context.get_check_aligned(),
             &mut |string: &str| Err(SyscallError::Panic(string.to_string(), line, column).into()),
+            instrument_collector,
         )
     }
 );

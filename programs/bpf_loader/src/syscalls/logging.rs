@@ -11,6 +11,7 @@ declare_builtin_function!(
         _arg4: u64,
         _arg5: u64,
         memory_mapping: &mut MemoryMapping,
+        instrument_collector: &mut DataCollector,
     ) -> Result<u64, Error> {
         let cost = invoke_context
             .get_compute_budget()
@@ -27,6 +28,7 @@ declare_builtin_function!(
                 stable_log::program_log(&invoke_context.get_log_collector(), string);
                 Ok(0)
             },
+            instrument_collector,
         )?;
         Ok(0)
     }
