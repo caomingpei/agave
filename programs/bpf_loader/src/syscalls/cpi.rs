@@ -1549,8 +1549,8 @@ fn update_caller_account(
                 // );
             }
         }
-
-        println!("prev_len: {:?} post_len: {:?}", prev_len, post_len);
+        // NovaFuzz: print the account length update.
+        // println!("prev_len: {:?} post_len: {:?}", prev_len, post_len);
 
         // this is the len field in the serialized parameters
         let serialized_len_ptr = translate_type_mut::<u64>(
