@@ -1119,9 +1119,6 @@ fn cpi_common<S: SyscallInvokeSigned>(
         .try_borrow_last_program_account(transaction_context)?
         .get_owner()
         == bpf_loader_deprecated::id();
-    let (instruction_accounts, program_indices) =
-        invoke_context.prepare_instruction(&instruction, &signers)?;
-    check_authorized_program(&instruction.program_id, &instruction.data, invoke_context)?;
 
     // NovFuzz record creation syscall
     let (account_infos, account_info_keys) = translate_account_infos(
@@ -1133,6 +1130,29 @@ fn cpi_common<S: SyscallInvokeSigned>(
     )?;
     let novafuzz_account_infos = account_info_keys.clone();
     let novafuzz_instruction = &instruction;
+
+    /// NovaFuzz: Process Syscall Program.
+    println!(
+        "NovaFuzz: Instruction Program ID: {:?} with Data: {:?} and Accounts: {:?}",
+        novafuzz_instruction.program_id, novafuzz_instruction.data, novafuzz_instruction.accounts
+    );
+
+    println!(
+        "NovaFuzz: Transaction Context: {:?}",
+        &invoke_context.transaction_context
+    );
+
+    // println!(
+    //     "NovaFuzz: Instruction Context: {:?}",
+    //     &invoke_context
+    //         .transaction_context
+    //         .get_current_instruction_context()?
+    // );
+
+    // NovaFuzz: related to native syscall
+    let (instruction_accounts, program_indices) =
+        invoke_context.prepare_instruction(&instruction, &signers)?;
+    check_authorized_program(&instruction.program_id, &instruction.data, invoke_context)?;
 
     // Store the seeds for instruction call.
     // let mut novafuzz_seeds = Vec::new();
@@ -1246,6 +1266,11 @@ fn cpi_common<S: SyscallInvokeSigned>(
     }
 
     invoke_context.execute_time = Some(Measure::start("execute"));
+
+    println!(
+        "NovaFuzz: SUCCESS: CPI executed successfully, transaction context detail: {:?}",
+        &invoke_context.transaction_context
+    );
     Ok(SUCCESS)
 }
 

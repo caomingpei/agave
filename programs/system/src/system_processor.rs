@@ -306,6 +306,16 @@ declare_process_instruction!(Entrypoint, DEFAULT_COMPUTE_UNITS, |invoke_context|
         limited_deserialize(instruction_data, solana_packet::PACKET_DATA_SIZE as u64)?;
 
     trace!("process_instruction: {:?}", instruction);
+    // // NovaFuzz: fine-grained
+    // if let Some(depth_manager) = invoke_context.depth_manager.as_ref() {
+    //     println!(
+    //         "process_instruction: {:?} depth: {:?}",
+    //         instruction,
+    //         depth_manager.borrow().current_vm_depth
+    //     );
+    // }
+    // println!("process_context: {:?}", transaction_context);
+    // println!("process_instruction: {:?}", instruction);
 
     let signers = instruction_context.get_signers(transaction_context)?;
     match instruction {
