@@ -608,6 +608,7 @@ winreg = "0.50"
 x509-parser = "0.14.0"
 zeroize = { version = "1.7", default-features = false }
 zstd = "0.13.3"
+novafuzz-instrument = { path = "../fuzzer/instrument" }
 
 [profile.release-with-debug]
 inherits = "release"

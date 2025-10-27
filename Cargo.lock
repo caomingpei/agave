@@ -4737,6 +4737,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61807f77802ff30975e01f4f071c8ba10c022052f98b3294119f3e615d13e5be"
 
 [[package]]
+name = "novafuzz-instrument"
+version = "0.1.0"
+
+[[package]]
 name = "num"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9671,6 +9675,7 @@ dependencies = [
  "bincode",
  "itertools 0.12.1",
  "log",
+ "novafuzz-instrument",
  "percentage",
  "rand 0.8.5",
  "serde",
@@ -10373,6 +10378,7 @@ dependencies = [
  "hash32",
  "libc",
  "log",
+ "novafuzz-instrument",
  "rand 0.8.5",
  "rustc-demangle",
  "shuttle",
