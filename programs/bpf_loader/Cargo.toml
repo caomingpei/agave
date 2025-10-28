@@ -48,6 +48,7 @@ solana-svm-measure = { workspace = true }
 solana-svm-type-overrides = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction-context = { workspace = true, features = ["bincode"] }
+novafuzz-instrument = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

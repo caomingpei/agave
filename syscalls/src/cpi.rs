@@ -1015,8 +1015,17 @@ fn cpi_common<S: SyscallInvokeSigned>(
 
     // Process the callee instruction
     let mut compute_units_consumed = 0;
-    invoke_context
-        .process_instruction(&mut compute_units_consumed, &mut ExecuteTimings::default())?;
+    let instruction_option = invoke_context.get_instrumenter();
+    if let Some(instrumenter) = instruction_option {
+        invoke_context.process_instruction_with_instrumenter(
+            &mut compute_units_consumed,
+            &mut ExecuteTimings::default(),
+            instrumenter,
+        )?;
+    } else {
+        invoke_context
+            .process_instruction(&mut compute_units_consumed, &mut ExecuteTimings::default())?;
+    }
 
     // re-bind to please the borrow checker
     let transaction_context = &invoke_context.transaction_context;
@@ -1190,6 +1199,11 @@ fn update_caller_account(
 ) -> Result<(), Error> {
     *caller_account.lamports = callee_account.get_lamports();
     *caller_account.owner = *callee_account.get_owner();
+
+    let instrumenter = invoke_context.get_instrumenter();
+    if let Some(_instrumenter) = instrumenter {
+        println!("agave/syscalls/src/cpi.rs: NovaFuzz: Used for extract PDA Seed");
+    }
 
     let prev_len = *caller_account.ref_to_len_in_vm as usize;
     let post_len = callee_account.get_data().len();

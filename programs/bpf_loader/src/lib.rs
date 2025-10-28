@@ -1,6 +1,8 @@
 #![deny(clippy::arithmetic_side_effects)]
 #![deny(clippy::indexing_slicing)]
 
+use novafuzz_instrument::Instrumenter;
+
 #[cfg(feature = "svm-internal")]
 use qualifier_attr::qualifiers;
 use {
@@ -256,6 +258,7 @@ fn create_vm<'a, 'b>(
     invoke_context: &'a mut InvokeContext<'b>,
     stack: &mut [u8],
     heap: &mut [u8],
+    instrumenter: Option<Rc<RefCell<Instrumenter>>>,
 ) -> Result<EbpfVm<'a, InvokeContext<'b>>, Box<dyn std::error::Error>> {
     let stack_size = stack.len();
     let heap_size = heap.len();
@@ -274,20 +277,34 @@ fn create_vm<'a, 'b>(
         allocator: BpfAllocator::new(heap_size as u64),
         accounts_metadata,
         trace_log: Vec::new(),
+        instrumenter: instrumenter.clone(),
     })?;
-    Ok(EbpfVm::new(
-        program.get_loader().clone(),
-        program.get_sbpf_version(),
-        invoke_context,
-        memory_mapping,
-        stack_size,
-    ))
+
+    // Use new_with_instrumenter if instrumenter is provided, otherwise use new
+    Ok(if let Some(instr) = instrumenter {
+        EbpfVm::new_with_instrumenter(
+            program.get_loader().clone(),
+            program.get_sbpf_version(),
+            invoke_context,
+            memory_mapping,
+            stack_size,
+            instr,
+        )
+    } else {
+        EbpfVm::new(
+            program.get_loader().clone(),
+            program.get_sbpf_version(),
+            invoke_context,
+            memory_mapping,
+            stack_size,
+        )
+    })
 }
 
 /// Create the SBF virtual machine
 #[macro_export]
 macro_rules! create_vm {
-    ($vm:ident, $program:expr, $regions:expr, $accounts_metadata:expr, $invoke_context:expr $(,)?) => {
+    ($vm:ident, $program:expr, $regions:expr, $accounts_metadata:expr, $invoke_context:expr, $instrumenter:expr $(,)?) => {
         let invoke_context = &*$invoke_context;
         let stack_size = $program.get_config().stack_size();
         let heap_size = invoke_context.get_compute_budget().heap_size;
@@ -310,6 +327,7 @@ macro_rules! create_vm {
                 heap.as_slice_mut()
                     .get_mut(..heap_size as usize)
                     .expect("invalid heap size"),
+                $instrumenter,
             );
             vm.map(|vm| (vm, stack, heap))
         });
@@ -1496,7 +1514,14 @@ fn execute<'a, 'b: 'a>(
     let mut create_vm_time = Measure::start("create_vm");
     let execution_result = {
         let compute_meter_prev = invoke_context.get_remaining();
-        create_vm!(vm, executable, regions, accounts_metadata, invoke_context);
+        create_vm!(
+            vm,
+            executable,
+            regions,
+            accounts_metadata,
+            invoke_context,
+            invoke_context.get_instrumenter()
+        );
         let (mut vm, stack, heap) = match vm {
             Ok(info) => info,
             Err(e) => {

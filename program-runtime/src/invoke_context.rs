@@ -173,6 +173,7 @@ pub struct SyscallContext {
     pub allocator: BpfAllocator,
     pub accounts_metadata: Vec<SerializedAccountMetadata>,
     pub trace_log: Vec<[u64; 12]>,
+    pub instrumenter: Option<Rc<RefCell<Instrumenter>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -210,6 +211,22 @@ pub struct InvokeContext<'a> {
 }
 
 impl<'a> InvokeContext<'a> {
+    /// Get the instrumenter for the current syscall context
+    pub fn get_instrumenter(&self) -> Option<Rc<RefCell<Instrumenter>>> {
+        self.syscall_context
+            .last()
+            .and_then(|ctx| ctx.as_ref())
+            .and_then(|ctx| ctx.instrumenter.clone())
+    }
+
+    /// Get mutable reference to instrumenter
+    pub fn get_instrumenter_mut(&mut self) -> Option<Rc<RefCell<Instrumenter>>> {
+        self.syscall_context
+            .last_mut()
+            .and_then(|ctx| ctx.as_mut())
+            .and_then(|ctx| ctx.instrumenter.clone())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         transaction_context: &'a mut TransactionContext,
@@ -511,6 +528,18 @@ impl<'a> InvokeContext<'a> {
     ) -> Result<(), InstructionError> {
         *compute_units_consumed = 0;
         self.push()?;
+
+        // NovaFuzz Key：Put instrumenter into SyscallContext
+        // process_instruction_inner can use get_instrumenter() to access it.
+        if let Some(syscall_ctx) = self.syscall_context.last_mut() {
+            *syscall_ctx = Some(SyscallContext {
+                allocator: BpfAllocator::new(0),
+                accounts_metadata: Vec::new(),
+                trace_log: Vec::new(),
+                instrumenter: Some(instrumenter.clone()),
+            });
+        }
+
         self.process_executable_chain_with_instrumenter(
             compute_units_consumed,
             timings,
