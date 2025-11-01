@@ -25,6 +25,7 @@ svm-internal = []
 [dependencies]
 bincode = { workspace = true }
 libsecp256k1 = { workspace = true }
+novafuzz-shared = { path = "../../fuzzer/shared" }
 num-traits = { workspace = true }
 solana-account = { workspace = true }
 solana-account-info = { workspace = true }

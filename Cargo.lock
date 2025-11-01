@@ -351,6 +351,7 @@ dependencies = [
  "assert_matches",
  "bincode",
  "libsecp256k1",
+ "novafuzz-shared",
  "num-traits",
  "solana-account",
  "solana-account-info",
@@ -4739,6 +4740,20 @@ checksum = "61807f77802ff30975e01f4f071c8ba10c022052f98b3294119f3e615d13e5be"
 [[package]]
 name = "novafuzz-instrument"
 version = "0.1.0"
+dependencies = [
+ "novafuzz-shared",
+]
+
+[[package]]
+name = "novafuzz-shared"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "solana-account",
+ "solana-keypair",
+ "solana-program",
+ "solana-signer",
+]
 
 [[package]]
 name = "num"
@@ -9583,6 +9598,7 @@ dependencies = [
  "solana-account-info",
  "solana-big-mod-exp",
  "solana-blake3-hasher",
+ "solana-borsh",
  "solana-clock",
  "solana-cpi",
  "solana-define-syscall 3.0.0",
@@ -10380,6 +10396,7 @@ dependencies = [
  "libc",
  "log",
  "novafuzz-instrument",
+ "novafuzz-shared",
  "rand 0.8.5",
  "rustc-demangle",
  "shuttle",

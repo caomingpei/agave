@@ -865,6 +865,67 @@ fn translate_and_check_program_address_inputs<'a>(
     Ok((seeds, program_id))
 }
 
+fn novafuzz_extract_pda_template(
+    seeds: &[&[u8]],
+    invoke_context: &InvokeContext,
+) -> Vec<novafuzz_shared::model::pda::SeedItem> {
+    use novafuzz_shared::model::pda::SeedItem;
+
+    let mut template = Vec::new();
+
+    let transaction_context = &invoke_context.transaction_context;
+    let instruction_context = match transaction_context.get_current_instruction_context() {
+        Ok(ctx) => ctx,
+        Err(_) => return template,
+    };
+
+    let num_accounts = instruction_context.get_number_of_instruction_accounts();
+
+    for (i, seed) in seeds.iter().enumerate() {
+        let is_last = i == seeds.len() - 1;
+
+        // Skip last single-byte seed (likely bump seed)
+        if seed.len() == 1 && is_last {
+            continue;
+        }
+
+        // Check if this is an account pubkey (32 bytes)
+        if seed.len() == 32 {
+            let mut is_account_pubkey = false;
+
+            for account_idx in 0..num_accounts {
+                let index_in_tx = match instruction_context
+                    .get_index_of_instruction_account_in_transaction(account_idx)
+                {
+                    Ok(idx) => idx,
+                    Err(_) => continue,
+                };
+
+                let account_key = match transaction_context.get_key_of_account_at_index(index_in_tx)
+                {
+                    Ok(key) => key,
+                    Err(_) => continue,
+                };
+
+                if *seed == account_key.as_ref() {
+                    is_account_pubkey = true;
+                    break;
+                }
+            }
+
+            if is_account_pubkey {
+                template.push(SeedItem::AccountPubkey);
+            } else {
+                template.push(SeedItem::FixedBytes(seed.to_vec()));
+            }
+        } else {
+            template.push(SeedItem::FixedBytes(seed.to_vec()));
+        }
+    }
+
+    template
+}
+
 declare_builtin_function!(
     /// Create a program address
     SyscallCreateProgramAddress,
@@ -889,6 +950,12 @@ declare_builtin_function!(
             memory_mapping,
             invoke_context.get_check_aligned(),
         )?;
+
+        // NovaFuzz: Extract PDA template for fuzzing
+        if let Some(instrumenter) = invoke_context.get_instrumenter() {
+            let template = novafuzz_extract_pda_template(&seeds, invoke_context);
+            instrumenter.borrow_mut().pda_tracker.record_template(template);
+        }
 
         let Ok(new_address) = Pubkey::create_program_address(&seeds, program_id) else {
             return Ok(1);
@@ -927,6 +994,12 @@ declare_builtin_function!(
             memory_mapping,
             invoke_context.get_check_aligned(),
         )?;
+
+        // NovaFuzz: Extract PDA template for fuzzing (seeds without bump)
+        if let Some(instrumenter) = invoke_context.get_instrumenter() {
+            let template = novafuzz_extract_pda_template(&seeds, invoke_context);
+            instrumenter.borrow_mut().pda_tracker.record_template(template);
+        }
 
         let mut bump_seed = [u8::MAX];
         for _ in 0..u8::MAX {
