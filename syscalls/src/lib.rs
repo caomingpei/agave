@@ -868,8 +868,8 @@ fn translate_and_check_program_address_inputs<'a>(
 fn novafuzz_extract_pda_template(
     seeds: &[&[u8]],
     invoke_context: &InvokeContext,
-) -> Vec<novafuzz_shared::model::pda::SeedItem> {
-    use novafuzz_shared::model::pda::SeedItem;
+) -> Vec<novafuzz_shared::model::semantic::SeedItem> {
+    use novafuzz_shared::model::semantic::SeedItem;
 
     let mut template = Vec::new();
 
