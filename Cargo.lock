@@ -351,6 +351,7 @@ dependencies = [
  "assert_matches",
  "bincode",
  "libsecp256k1",
+ "novafuzz-instrument",
  "novafuzz-shared",
  "num-traits",
  "solana-account",

@@ -43,7 +43,7 @@ use {
     },
 };
 
-use novafuzz_instrument::Instrumenter;
+use novafuzz_instrument::{Instrumenter, VmTaintState};
 
 pub type BuiltinFunctionWithContext = BuiltinFunction<InvokeContext<'static>>;
 
@@ -174,6 +174,7 @@ pub struct SyscallContext {
     pub accounts_metadata: Vec<SerializedAccountMetadata>,
     pub trace_log: Vec<[u64; 12]>,
     pub instrumenter: Option<Rc<RefCell<Instrumenter>>>,
+    pub vm_taint_state: Option<Rc<RefCell<VmTaintState>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -217,6 +218,14 @@ impl<'a> InvokeContext<'a> {
             .last()
             .and_then(|ctx| ctx.as_ref())
             .and_then(|ctx| ctx.instrumenter.clone())
+    }
+
+    /// Get the vm_taint_state for the current syscall context
+    pub fn get_vm_taint_state(&self) -> Option<Rc<RefCell<VmTaintState>>> {
+        self.syscall_context
+            .last()
+            .and_then(|ctx| ctx.as_ref())
+            .and_then(|ctx| ctx.vm_taint_state.clone())
     }
 
     /// Get mutable reference to instrumenter
@@ -537,6 +546,7 @@ impl<'a> InvokeContext<'a> {
                 accounts_metadata: Vec::new(),
                 trace_log: Vec::new(),
                 instrumenter: Some(instrumenter.clone()),
+                vm_taint_state: None,  // No VM in this context
             });
         }
 

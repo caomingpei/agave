@@ -130,6 +130,12 @@ declare_builtin_function!(
             let s: &mut [u8] = map(dst_addr, n)?;
         );
         s.fill(c as u8);
+
+        // NovaFuzz: Clear taint for bulk memory set
+        if let (Some(instrumenter), Some(vm_taint_state)) = (invoke_context.get_instrumenter(), invoke_context.get_vm_taint_state()) {
+            instrumenter.borrow_mut().on_bulk_set(&mut vm_taint_state.borrow_mut(), dst_addr, n);
+        }
+
         Ok(0)
     }
 );
@@ -156,6 +162,12 @@ fn memmove(
     .as_ptr();
 
     unsafe { std::ptr::copy(src_ptr, dst_ptr, n as usize) };
+
+    // NovaFuzz: Propagate taint for bulk memory copy
+    if let (Some(instrumenter), Some(vm_taint_state)) = (invoke_context.get_instrumenter(), invoke_context.get_vm_taint_state()) {
+        instrumenter.borrow_mut().on_bulk_copy(&mut vm_taint_state.borrow_mut(), dst_addr, src_addr, n);
+    }
+
     Ok(0)
 }
 

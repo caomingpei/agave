@@ -1044,7 +1044,9 @@ fn cpi_common<S: SyscallInvokeSigned>(
             }
         } else {
             // For other programs, record the program_id itself as the potential owner
-            instrumenter.borrow_mut().push_cpi_owner(instruction.program_id);
+            instrumenter
+                .borrow_mut()
+                .push_cpi_owner(instruction.program_id);
         }
     }
 

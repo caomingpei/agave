@@ -273,15 +273,20 @@ fn create_vm<'a, 'b>(
             .stricter_abi_and_runtime_constraints,
         invoke_context.account_data_direct_mapping,
     )?;
+
+    // Create vm_taint_state upfront so it can be shared between VM and syscall context
+    let vm_taint_state = std::rc::Rc::new(std::cell::RefCell::new(novafuzz_instrument::VmTaintState::new()));
+
     invoke_context.set_syscall_context(SyscallContext {
         allocator: BpfAllocator::new(heap_size as u64),
         accounts_metadata,
         trace_log: Vec::new(),
         instrumenter: instrumenter.clone(),
+        vm_taint_state: Some(vm_taint_state.clone()),
     })?;
 
     // Use new_with_instrumenter if instrumenter is provided, otherwise use new
-    Ok(if let Some(instr) = instrumenter {
+    let mut vm = if let Some(instr) = instrumenter {
         EbpfVm::new_with_instrumenter(
             program.get_loader().clone(),
             program.get_sbpf_version(),
@@ -298,7 +303,12 @@ fn create_vm<'a, 'b>(
             memory_mapping,
             stack_size,
         )
-    })
+    };
+
+    // Replace VM's vm_taint_state with the shared one
+    vm.vm_taint_state = vm_taint_state;
+
+    Ok(vm)
 }
 
 /// Create the SBF virtual machine
