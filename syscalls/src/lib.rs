@@ -1049,19 +1049,19 @@ declare_builtin_function!(
             .ok()
         });
 
-        println!("program_id_addr = 0x{:x}", program_id_addr);
-        println!("seeds_addr = 0x{:x}, seeds_len = {}", seeds_addr, seeds_len);
-        println!("address_addr = 0x{:x}", address_addr);
+        // println!("program_id_addr = 0x{:x}", program_id_addr);
+        // println!("seeds_addr = 0x{:x}, seeds_len = {}", seeds_addr, seeds_len);
+        // println!("address_addr = 0x{:x}", address_addr);
 
-        if let Some(ref seed_infos) = seed_infos_opt {
-            println!("Extracted {} seed(s):", seed_infos.len());
-            for (i, seed_info) in seed_infos.iter().enumerate() {
-                println!("  Seed {}: vm_addr=0x{:x}, len={}, value={:?}",
-                    i, seed_info.vm_address, seed_info.length, seed_info.value);
-            }
-        } else {
-            println!("Failed to extract seed info!");
-        }
+        // if let Some(ref seed_infos) = seed_infos_opt {
+        //     println!("Extracted {} seed(s):", seed_infos.len());
+        //     for (i, seed_info) in seed_infos.iter().enumerate() {
+        //         println!("  Seed {}: vm_addr=0x{:x}, len={}, value={:?}",
+        //             i, seed_info.vm_address, seed_info.length, seed_info.value);
+        //     }
+        // } else {
+        //     println!("Failed to extract seed info!");
+        // }
 
         let (seeds, program_id) = translate_and_check_program_address_inputs(
             seeds_addr,
@@ -1071,18 +1071,18 @@ declare_builtin_function!(
             invoke_context.get_check_aligned(),
         )?;
 
-        println!("After translation, seeds count: {}", seeds.len());
-        for (i, seed) in seeds.iter().enumerate() {
-            println!("  Translated seed {}: {:?}", i, seed);
-        }
+        // println!("After translation, seeds count: {}", seeds.len());
+        // for (i, seed) in seeds.iter().enumerate() {
+        //     println!("  Translated seed {}: {:?}", i, seed);
+        // }
 
         let Ok(new_address) = Pubkey::create_program_address(&seeds, program_id) else {
             println!("create_program_address FAILED");
             return Ok(1);
         };
 
-        println!("create_program_address SUCCESS -> {}", new_address);
-        println!("=== End SyscallCreateProgramAddress ===\n");
+        // println!("create_program_address SUCCESS -> {}", new_address);
+        // println!("=== End SyscallCreateProgramAddress ===\n");
 
         // NovaFuzz: Record PDA creation with template and seed info
         if let Some(instrumenter) = invoke_context.get_instrumenter() {
