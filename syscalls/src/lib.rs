@@ -975,18 +975,17 @@ fn novafuzz_extract_seed_info(
                         // println!("[PDA Syscall] Checking taint for 1-byte seed at 0x{:x}: {:?}",
                         //     vm_slice.ptr, taint);
 
-                        // Check nearby addresses
-                        // println!("[PDA Syscall] Checking nearby addresses:");
-                        for offset in 0..16 {
-                            let addr = vm_slice.ptr.wrapping_sub(8).wrapping_add(offset);
-                            if let Some(t) = inst
-                                .borrow()
-                                .taint_tracker
-                                .check_memory_taint(&vm_state.borrow(), addr)
-                            {
-                                println!("  0x{:x}: {:?}", addr, t);
-                            }
-                        }
+                        // Check nearby addresses (debug disabled)
+                        // for offset in 0..16 {
+                        //     let addr = vm_slice.ptr.wrapping_sub(8).wrapping_add(offset);
+                        //     if let Some(t) = inst
+                        //         .borrow()
+                        //         .taint_tracker
+                        //         .check_memory_taint(&vm_state.borrow(), addr)
+                        //     {
+                        //         println!("  0x{:x}: {:?}", addr, t);
+                        //     }
+                        // }
                     }
 
                     taint
@@ -1077,7 +1076,7 @@ declare_builtin_function!(
         // }
 
         let Ok(new_address) = Pubkey::create_program_address(&seeds, program_id) else {
-            println!("create_program_address FAILED");
+            // println!("create_program_address FAILED");
             return Ok(1);
         };
 
