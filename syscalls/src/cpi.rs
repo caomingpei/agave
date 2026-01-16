@@ -1269,6 +1269,15 @@ fn update_caller_account(
         return Err(Box::new(InstructionError::InvalidRealloc));
     }
 
+    if prev_len == 0 && post_len > 0 {
+        if let Some(instrumenter) = invoke_context.get_instrumenter() {
+            let pubkey = *callee_account.get_key();
+            instrumenter
+                .borrow_mut()
+                .record_account_init(pubkey, prev_len, post_len);
+        }
+    }
+
     if prev_len != post_len {
         // when stricter_abi_and_runtime_constraints is enabled we don't cache the serialized data in
         // caller_account.serialized_data. See CallerAccount::from_account_info.
