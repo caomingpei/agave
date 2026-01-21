@@ -1048,6 +1048,24 @@ declare_builtin_function!(
             .ok()
         });
 
+
+        let instruction_data_opt = instrumenter_opt
+            .as_ref()
+            .and_then(|inst| inst.borrow().get_current_instruction_data());
+        // NovaFuzz: For logging purposes, get current instruction data and seed_length
+        // if let Some(instruction_data) = instruction_data_opt.as_ref() {
+        //     println!(
+        //         "syscall=create_program_address seeds_len={} instruction_data_len={}",
+        //         seeds_len,
+        //         instruction_data.len()
+        //     );
+        // } else {
+        //     println!(
+        //         "syscall=create_program_address seeds_len={} instruction_data_len=None",
+        //         seeds_len
+        //     );
+        // }
+
         // println!("program_id_addr = 0x{:x}", program_id_addr);
         // println!("seeds_addr = 0x{:x}, seeds_len = {}", seeds_addr, seeds_len);
         // println!("address_addr = 0x{:x}", address_addr);
@@ -1075,7 +1093,36 @@ declare_builtin_function!(
         //     println!("  Translated seed {}: {:?}", i, seed);
         // }
 
-        let Ok(new_address) = Pubkey::create_program_address(&seeds, program_id) else {
+        let template = novafuzz_extract_pda_template(&seeds, invoke_context);
+        let create_result = Pubkey::create_program_address(&seeds, program_id);
+
+        // NovaFuzz: Record PDA attempt regardless of success
+        if let Some(instrumenter) = instrumenter_opt.as_ref() {
+            if let (Some(seed_infos), Some(instruction_data)) =
+                (seed_infos_opt.clone(), instruction_data_opt.clone())
+            {
+                // Checking instruction data hex (debug disabled)
+                // let mut disc_hex = String::new();
+                // for b in instruction_data.iter().take(8) {
+                //     use std::fmt::Write;
+                //     let _ = write!(&mut disc_hex, "{:02x}", b);
+                // }
+                // println!(
+                //     "[PDA Syscall] Recording attempt for create_program_address disc={} data_len={}",
+                //     disc_hex,
+                //     instruction_data.len()
+                // );
+                instrumenter.borrow_mut().pda_tracker.record_attempt(
+                    seed_infos,
+                    template.clone(),
+                    instruction_data,
+                    novafuzz_instrument::PDASyscallType::CreateProgramAddress,
+                    create_result.is_ok(),
+                );
+            }
+        }
+
+        let Ok(new_address) = create_result else {
             // println!("create_program_address FAILED");
             return Ok(1);
         };
@@ -1086,7 +1133,6 @@ declare_builtin_function!(
         // NovaFuzz: Record PDA creation with template and seed info
         if let Some(instrumenter) = invoke_context.get_instrumenter() {
             if let Some(seed_infos) = seed_infos_opt {
-                let template = novafuzz_extract_pda_template(&seeds, invoke_context);
                 instrumenter.borrow_mut().pda_tracker.record_creation(
                     seed_infos,
                     template,
