@@ -546,7 +546,7 @@ impl<'a> InvokeContext<'a> {
                 accounts_metadata: Vec::new(),
                 trace_log: Vec::new(),
                 instrumenter: Some(instrumenter.clone()),
-                vm_taint_state: None,  // No VM in this context
+                vm_taint_state: None, // No VM in this context
             });
         }
 

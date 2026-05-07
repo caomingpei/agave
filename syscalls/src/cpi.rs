@@ -18,35 +18,6 @@ use {
 
 const MAX_CPI_ACCOUNT_INFOS: usize = 128;
 
-/// NovaFuzz: Try to extract the owner pubkey from System Program's CreateAccount instruction
-/// CreateAccount instruction format (bincode serialized enum):
-/// - u32: enum variant discriminator (0 for CreateAccount)
-/// - u64: lamports
-/// - u64: space
-/// - Pubkey (32 bytes): owner
-fn try_extract_create_account_owner(instruction_data: &[u8]) -> Option<solana_pubkey::Pubkey> {
-    // Minimum size: 4 (discriminator) + 8 (lamports) + 8 (space) + 32 (owner) = 52 bytes
-    if instruction_data.len() < 52 {
-        return None;
-    }
-
-    // Check if this is a CreateAccount instruction (discriminator = 0)
-    let discriminator = u32::from_le_bytes([
-        instruction_data[0],
-        instruction_data[1],
-        instruction_data[2],
-        instruction_data[3],
-    ]);
-
-    if discriminator != 0 {
-        return None; // Not a CreateAccount instruction
-    }
-
-    // Extract owner pubkey at offset 4 + 8 + 8 = 20
-    let owner_bytes: [u8; 32] = instruction_data[20..52].try_into().ok()?;
-    Some(solana_pubkey::Pubkey::new_from_array(owner_bytes))
-}
-
 fn check_account_info_pointer(
     invoke_context: &InvokeContext,
     vm_addr: u64,
@@ -1034,20 +1005,11 @@ fn cpi_common<S: SyscallInvokeSigned>(
     check_authorized_program(&instruction.program_id, &instruction.data, invoke_context)?;
     invoke_context.prepare_next_instruction(&instruction, &signers)?;
 
-    // NovaFuzz: Record CPI owner for ACPI oracle
-    // For System Program's CreateAccount instruction, extract owner from instruction data
+    // NovaFuzz: Record CPI target program for ACPI oracle
     if let Some(instrumenter) = invoke_context.get_instrumenter() {
-        if solana_sdk_ids::system_program::check_id(&instruction.program_id) {
-            // System Program instruction - try to extract owner from CreateAccount
-            if let Some(owner) = try_extract_create_account_owner(&instruction.data) {
-                instrumenter.borrow_mut().push_cpi_owner(owner);
-            }
-        } else {
-            // For other programs, record the program_id itself as the potential owner
-            instrumenter
-                .borrow_mut()
-                .push_cpi_owner(instruction.program_id);
-        }
+        instrumenter
+            .borrow_mut()
+            .push_cpi_program(instruction.program_id);
     }
 
     let mut accounts = S::translate_accounts(

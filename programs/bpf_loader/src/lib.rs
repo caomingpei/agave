@@ -275,7 +275,9 @@ fn create_vm<'a, 'b>(
     )?;
 
     // Create vm_taint_state upfront so it can be shared between VM and syscall context
-    let vm_taint_state = std::rc::Rc::new(std::cell::RefCell::new(novafuzz_instrument::VmTaintState::new()));
+    let vm_taint_state = std::rc::Rc::new(std::cell::RefCell::new(
+        novafuzz_instrument::VmTaintState::new(),
+    ));
 
     invoke_context.set_syscall_context(SyscallContext {
         allocator: BpfAllocator::new(heap_size as u64),
