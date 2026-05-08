@@ -560,6 +560,47 @@ impl<'a> InvokeContext<'a> {
         .and(self.pop())
     }
 
+    pub fn process_stubbed_cpi_success(
+        &mut self,
+        compute_units_consumed: &mut u64,
+        timings: &mut ExecuteTimings,
+    ) -> Result<(), InstructionError> {
+        *compute_units_consumed = 0;
+        self.push()?;
+
+        let result = (|| {
+            let process_stubbed_cpi_time = Measure::start("process_stubbed_cpi_time");
+            let program_id = {
+                let instruction_context =
+                    self.transaction_context.get_current_instruction_context()?;
+                *instruction_context.get_program_key()?
+            };
+
+            self.transaction_context
+                .set_return_data(program_id, Vec::new())?;
+            let logger = self.get_log_collector();
+            stable_log::program_invoke(&logger, &program_id, self.get_stack_height());
+
+            let pre_remaining_units = self.get_remaining();
+            self.consume_checked(1).map_err(|err| {
+                err.downcast_ref::<InstructionError>()
+                    .cloned()
+                    .unwrap_or(InstructionError::ProgramFailedToComplete)
+            })?;
+            let post_remaining_units = self.get_remaining();
+            *compute_units_consumed = pre_remaining_units.saturating_sub(post_remaining_units);
+
+            stable_log::program_success(&logger, &program_id);
+            timings
+                .execute_accessories
+                .process_instructions
+                .process_executable_chain_us += process_stubbed_cpi_time.end_as_us();
+            Ok(())
+        })();
+
+        result.and(self.pop())
+    }
+
     /// Processes a precompile instruction
     pub fn process_precompile<'ix_data>(
         &mut self,

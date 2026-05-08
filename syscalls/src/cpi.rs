@@ -1005,13 +1005,6 @@ fn cpi_common<S: SyscallInvokeSigned>(
     check_authorized_program(&instruction.program_id, &instruction.data, invoke_context)?;
     invoke_context.prepare_next_instruction(&instruction, &signers)?;
 
-    // NovaFuzz: Record CPI target program for ACPI oracle
-    if let Some(instrumenter) = invoke_context.get_instrumenter() {
-        instrumenter
-            .borrow_mut()
-            .push_cpi_program(instruction.program_id);
-    }
-
     let mut accounts = S::translate_accounts(
         account_infos_addr,
         account_infos_len,
@@ -1022,16 +1015,36 @@ fn cpi_common<S: SyscallInvokeSigned>(
 
     // Process the callee instruction
     let mut compute_units_consumed = 0;
-    let instruction_option = invoke_context.get_instrumenter();
-    if let Some(instrumenter) = instruction_option {
-        invoke_context.process_instruction_with_instrumenter(
-            &mut compute_units_consumed,
-            &mut ExecuteTimings::default(),
-            instrumenter,
-        )?;
+    let maybe_instrumenter = invoke_context.get_instrumenter();
+    let callee_result = if let Some(instrumenter) = maybe_instrumenter.clone() {
+        let should_stub = {
+            instrumenter
+                .borrow()
+                .should_stub_cpi_success(&instruction.program_id)
+        };
+        if should_stub {
+            invoke_context.process_stubbed_cpi_success(
+                &mut compute_units_consumed,
+                &mut ExecuteTimings::default(),
+            )
+        } else {
+            invoke_context.process_instruction_with_instrumenter(
+                &mut compute_units_consumed,
+                &mut ExecuteTimings::default(),
+                instrumenter,
+            )
+        }
     } else {
         invoke_context
-            .process_instruction(&mut compute_units_consumed, &mut ExecuteTimings::default())?;
+            .process_instruction(&mut compute_units_consumed, &mut ExecuteTimings::default())
+    };
+    callee_result?;
+
+    // NovaFuzz: Record only CPI targets whose callee returned successfully.
+    if let Some(instrumenter) = maybe_instrumenter {
+        instrumenter
+            .borrow_mut()
+            .push_cpi_program(instruction.program_id);
     }
 
     // re-bind to please the borrow checker
