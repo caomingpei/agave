@@ -22,9 +22,7 @@ use {
             ALT_BN128_G2_POINT_SIZE, ALT_BN128_PAIRING_BE, ALT_BN128_PAIRING_ELEMENT_SIZE,
             ALT_BN128_PAIRING_OUTPUT_SIZE,
         },
-        versioned::{
-            alt_bn128_versioned_g1_multiplication, Endianness, VersionedG1Multiplication,
-        },
+        versioned::{alt_bn128_versioned_g1_multiplication, Endianness, VersionedG1Multiplication},
     },
     solana_cpi::MAX_RETURN_DATA,
     solana_hash::Hash,
