@@ -10,17 +10,21 @@ pub use self::{
         SyscallGetSysvar,
     },
 };
-#[allow(deprecated)]
 use {
     crate::mem_ops::is_nonoverlapping,
     solana_account_info::AccountInfo,
     solana_big_mod_exp::{big_mod_exp, BigModExpParams},
     solana_blake3_hasher as blake3,
-    solana_bn254::prelude::{
-        alt_bn128_addition, alt_bn128_multiplication, alt_bn128_multiplication_128,
-        alt_bn128_pairing, AltBn128Error, ALT_BN128_ADDITION_OUTPUT_LEN,
-        ALT_BN128_MULTIPLICATION_OUTPUT_LEN, ALT_BN128_PAIRING_ELEMENT_LEN,
-        ALT_BN128_PAIRING_OUTPUT_LEN,
+    solana_bn254::{
+        prelude::{
+            alt_bn128_g1_addition_be, alt_bn128_g1_multiplication_be, alt_bn128_pairing_be,
+            AltBn128Error, ALT_BN128_G1_ADD_BE, ALT_BN128_G1_MUL_BE, ALT_BN128_G1_POINT_SIZE,
+            ALT_BN128_G2_POINT_SIZE, ALT_BN128_PAIRING_BE, ALT_BN128_PAIRING_ELEMENT_SIZE,
+            ALT_BN128_PAIRING_OUTPUT_SIZE,
+        },
+        versioned::{
+            alt_bn128_versioned_g1_multiplication, Endianness, VersionedG1Multiplication,
+        },
     },
     solana_cpi::MAX_RETURN_DATA,
     solana_hash::Hash,
@@ -1906,20 +1910,19 @@ declare_builtin_function!(
         _arg5: u64,
         memory_mapping: &mut MemoryMapping,
     ) -> Result<u64, Error> {
-        use solana_bn254::prelude::{ALT_BN128_ADD, ALT_BN128_MUL, ALT_BN128_PAIRING};
         let execution_cost = invoke_context.get_execution_cost();
         let (cost, output): (u64, usize) = match group_op {
-            ALT_BN128_ADD => (
+            ALT_BN128_G1_ADD_BE => (
                 execution_cost.alt_bn128_addition_cost,
-                ALT_BN128_ADDITION_OUTPUT_LEN,
+                ALT_BN128_G1_POINT_SIZE,
             ),
-            ALT_BN128_MUL => (
+            ALT_BN128_G1_MUL_BE => (
                 execution_cost.alt_bn128_multiplication_cost,
-                ALT_BN128_MULTIPLICATION_OUTPUT_LEN,
+                ALT_BN128_G1_POINT_SIZE,
             ),
-            ALT_BN128_PAIRING => {
+            ALT_BN128_PAIRING_BE => {
                 let ele_len = input_size
-                    .checked_div(ALT_BN128_PAIRING_ELEMENT_LEN as u64)
+                    .checked_div(ALT_BN128_PAIRING_ELEMENT_SIZE as u64)
                     .expect("div by non-zero constant");
                 let cost = execution_cost
                     .alt_bn128_pairing_one_pair_cost_first
@@ -1930,8 +1933,8 @@ declare_builtin_function!(
                     )
                     .saturating_add(execution_cost.sha256_base_cost)
                     .saturating_add(input_size)
-                    .saturating_add(ALT_BN128_PAIRING_OUTPUT_LEN as u64);
-                (cost, ALT_BN128_PAIRING_OUTPUT_LEN)
+                    .saturating_add(ALT_BN128_PAIRING_OUTPUT_SIZE as u64);
+                (cost, ALT_BN128_PAIRING_OUTPUT_SIZE)
             }
             _ => {
                 return Err(SyscallError::InvalidAttribute.into());
@@ -1952,19 +1955,23 @@ declare_builtin_function!(
             invoke_context.get_check_aligned(),
         )?;
 
-        let calculation = match group_op {
-            ALT_BN128_ADD => alt_bn128_addition,
-            ALT_BN128_MUL => {
+        let calculation_result = match group_op {
+            ALT_BN128_G1_ADD_BE => alt_bn128_g1_addition_be(input),
+            ALT_BN128_G1_MUL_BE => {
                 let fix_alt_bn128_multiplication_input_length = invoke_context
                     .get_feature_set()
                     .fix_alt_bn128_multiplication_input_length;
                 if fix_alt_bn128_multiplication_input_length {
-                    alt_bn128_multiplication
+                    alt_bn128_g1_multiplication_be(input)
                 } else {
-                    alt_bn128_multiplication_128
+                    alt_bn128_versioned_g1_multiplication(
+                        VersionedG1Multiplication::V0,
+                        input,
+                        Endianness::BE,
+                    )
                 }
             }
-            ALT_BN128_PAIRING => alt_bn128_pairing,
+            ALT_BN128_PAIRING_BE => alt_bn128_pairing_be(input),
             _ => {
                 return Err(SyscallError::InvalidAttribute.into());
             }
@@ -1974,7 +1981,7 @@ declare_builtin_function!(
             .get_feature_set()
             .simplify_alt_bn128_syscall_error_codes;
 
-        let result_point = match calculation(input) {
+        let result_point = match calculation_result {
             Ok(result_point) => result_point,
             Err(e) => {
                 return if simplify_alt_bn128_syscall_error_codes {
@@ -2174,26 +2181,34 @@ declare_builtin_function!(
         memory_mapping: &mut MemoryMapping,
     ) -> Result<u64, Error> {
         use solana_bn254::compression::prelude::{
-            alt_bn128_g1_compress, alt_bn128_g1_decompress, alt_bn128_g2_compress,
-            alt_bn128_g2_decompress, ALT_BN128_G1_COMPRESS, ALT_BN128_G1_DECOMPRESS,
-            ALT_BN128_G2_COMPRESS, ALT_BN128_G2_DECOMPRESS, G1, G1_COMPRESSED, G2, G2_COMPRESSED,
+            alt_bn128_g1_compress_be, alt_bn128_g1_decompress_be, alt_bn128_g2_compress_be,
+            alt_bn128_g2_decompress_be, ALT_BN128_G1_COMPRESSED_POINT_SIZE,
+            ALT_BN128_G1_COMPRESS_BE, ALT_BN128_G1_DECOMPRESS_BE,
+            ALT_BN128_G2_COMPRESSED_POINT_SIZE, ALT_BN128_G2_COMPRESS_BE,
+            ALT_BN128_G2_DECOMPRESS_BE,
         };
         let execution_cost = invoke_context.get_execution_cost();
         let base_cost = execution_cost.syscall_base_cost;
         let (cost, output): (u64, usize) = match op {
-            ALT_BN128_G1_COMPRESS => (
+            ALT_BN128_G1_COMPRESS_BE => (
                 base_cost.saturating_add(execution_cost.alt_bn128_g1_compress),
-                G1_COMPRESSED,
+                ALT_BN128_G1_COMPRESSED_POINT_SIZE,
             ),
-            ALT_BN128_G1_DECOMPRESS => {
-                (base_cost.saturating_add(execution_cost.alt_bn128_g1_decompress), G1)
+            ALT_BN128_G1_DECOMPRESS_BE => {
+                (
+                    base_cost.saturating_add(execution_cost.alt_bn128_g1_decompress),
+                    ALT_BN128_G1_POINT_SIZE,
+                )
             }
-            ALT_BN128_G2_COMPRESS => (
+            ALT_BN128_G2_COMPRESS_BE => (
                 base_cost.saturating_add(execution_cost.alt_bn128_g2_compress),
-                G2_COMPRESSED,
+                ALT_BN128_G2_COMPRESSED_POINT_SIZE,
             ),
-            ALT_BN128_G2_DECOMPRESS => {
-                (base_cost.saturating_add(execution_cost.alt_bn128_g2_decompress), G2)
+            ALT_BN128_G2_DECOMPRESS_BE => {
+                (
+                    base_cost.saturating_add(execution_cost.alt_bn128_g2_decompress),
+                    ALT_BN128_G2_POINT_SIZE,
+                )
             }
             _ => {
                 return Err(SyscallError::InvalidAttribute.into());
@@ -2219,8 +2234,8 @@ declare_builtin_function!(
             .simplify_alt_bn128_syscall_error_codes;
 
         match op {
-            ALT_BN128_G1_COMPRESS => {
-                let result_point = match alt_bn128_g1_compress(input) {
+            ALT_BN128_G1_COMPRESS_BE => {
+                let result_point = match alt_bn128_g1_compress_be(input) {
                     Ok(result_point) => result_point,
                     Err(e) => {
                         return if simplify_alt_bn128_syscall_error_codes {
@@ -2233,8 +2248,8 @@ declare_builtin_function!(
                 call_result.copy_from_slice(&result_point);
                 Ok(SUCCESS)
             }
-            ALT_BN128_G1_DECOMPRESS => {
-                let result_point = match alt_bn128_g1_decompress(input) {
+            ALT_BN128_G1_DECOMPRESS_BE => {
+                let result_point = match alt_bn128_g1_decompress_be(input) {
                     Ok(result_point) => result_point,
                     Err(e) => {
                         return if simplify_alt_bn128_syscall_error_codes {
@@ -2247,8 +2262,8 @@ declare_builtin_function!(
                 call_result.copy_from_slice(&result_point);
                 Ok(SUCCESS)
             }
-            ALT_BN128_G2_COMPRESS => {
-                let result_point = match alt_bn128_g2_compress(input) {
+            ALT_BN128_G2_COMPRESS_BE => {
+                let result_point = match alt_bn128_g2_compress_be(input) {
                     Ok(result_point) => result_point,
                     Err(e) => {
                         return if simplify_alt_bn128_syscall_error_codes {
@@ -2261,8 +2276,8 @@ declare_builtin_function!(
                 call_result.copy_from_slice(&result_point);
                 Ok(SUCCESS)
             }
-            ALT_BN128_G2_DECOMPRESS => {
-                let result_point = match alt_bn128_g2_decompress(input) {
+            ALT_BN128_G2_DECOMPRESS_BE => {
+                let result_point = match alt_bn128_g2_decompress_be(input) {
                     Ok(result_point) => result_point,
                     Err(e) => {
                         return if simplify_alt_bn128_syscall_error_codes {
