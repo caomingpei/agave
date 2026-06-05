@@ -946,53 +946,15 @@ fn novafuzz_extract_seed_info(
 
     untranslated_seeds
         .iter()
-        .enumerate()
-        .map(|(idx, vm_slice)| {
-            let vmslice_base_addr = seeds_addr + (idx as u64 * 16); // VmSlice = 16 bytes
-
+        .map(|vm_slice| {
             let seed_bytes = vm_slice.translate(memory_mapping, check_aligned)?;
-
-            // println!(
-            //     "[DEBUG] Processing seed at vm_addr=0x{:x}, len={}",
-            //     vm_slice.ptr, vm_slice.len
-            // );
-            // println!(
-            //     "[DEBUG] instrumenter.is_some()={}, vm_taint_state.is_some()={}",
-            //     instrumenter.is_some(),
-            //     vm_taint_state.is_some()
-            // );
 
             // Capture taint snapshot at syscall time
             let taint_snapshot = instrumenter.and_then(|inst| {
                 vm_taint_state.and_then(|vm_state| {
-                    // println!("[PDA Syscall] Inside taint capture block");
-                    let taint = inst.borrow().memory_taint(&vm_state.borrow(), vm_slice.ptr);
-
-                    // Debug: Check taint for the seed
-                    if vm_slice.len == 1 {
-                        // println!("[PDA Syscall] Checking taint for 1-byte seed at 0x{:x}: {:?}",
-                        //     vm_slice.ptr, taint);
-
-                        // Nearby address debug was removed after Instrumenter
-                        // gained a stable memory_taint facade.
-                    }
-
-                    taint
+                    inst.borrow().memory_taint(&vm_state.borrow(), vm_slice.ptr)
                 })
             });
-
-            // Query VmSlice.ptr field taint (first 8 bytes of VmSlice struct)
-            if let (Some(ref inst), Some(ref vm_state)) = (instrumenter, vm_taint_state) {
-                let mut ptr_field_taints = Vec::new();
-                for offset in 0..8 {
-                    if let Some(t) = inst
-                        .borrow()
-                        .memory_taint(&vm_state.borrow(), vmslice_base_addr + offset)
-                    {
-                        ptr_field_taints.push((offset, t));
-                    }
-                }
-            }
 
             Ok(PDASeedInfo {
                 vm_address: vm_slice.ptr, // Extract VM address for taint tracing
@@ -1083,6 +1045,7 @@ declare_builtin_function!(
 
         let template = novafuzz_extract_pda_template(&seeds, invoke_context);
         let create_result = Pubkey::create_program_address(&seeds, program_id);
+        let program_id = *program_id;
 
         // NovaFuzz: Record PDA attempt regardless of success
         if let Some(instrumenter) = instrumenter_opt.as_ref() {
@@ -1120,25 +1083,36 @@ declare_builtin_function!(
         // println!("create_program_address SUCCESS -> {}", new_address);
         // println!("=== End SyscallCreateProgramAddress ===\n");
 
-        // NovaFuzz: Record PDA creation with template and seed info
-        if let Some(instrumenter) = invoke_context.get_instrumenter() {
-            if let Some(seed_infos) = seed_infos_opt {
-                instrumenter
-                    .borrow_mut()
-                    .record_pda_creation(novafuzz_instrument::PDACreationEvent {
-                        seeds: seed_infos,
-                        template,
-                        result_address: new_address,
-                        syscall_type: novafuzz_instrument::PDASyscallType::CreateProgramAddress,
-                    });
-            }
-        }
         translate_mut!(
             memory_mapping,
             invoke_context.get_check_aligned(),
             let address: &mut [u8] = map(address_addr, std::mem::size_of::<Pubkey>() as u64)?;
         );
         address.copy_from_slice(new_address.as_ref());
+
+        // NovaFuzz: Record PDA creation only after output write succeeds.
+        if let (Some(instrumenter), Some(seed_infos)) = (instrumenter_opt.as_ref(), seed_infos_opt)
+        {
+            let derivation_id = instrumenter.borrow_mut().record_pda_creation(
+                novafuzz_instrument::PDACreationEvent {
+                    program_id,
+                    returned_bump: None,
+                    seeds: seed_infos,
+                    template,
+                    result_address: new_address,
+                    syscall_type: novafuzz_instrument::PDASyscallType::CreateProgramAddress,
+                },
+            );
+            if let Some(vm_taint_state) = vm_taint_state_opt.as_ref() {
+                let mut vm_taint_state = vm_taint_state.borrow_mut();
+                instrumenter.borrow_mut().mark_pda_result_bytes(
+                    &mut vm_taint_state,
+                    address_addr,
+                    derivation_id,
+                    new_address,
+                );
+            }
+        }
         Ok(0)
     }
 );
@@ -1192,22 +1166,8 @@ declare_builtin_function!(
                 if let Ok(new_address) =
                     Pubkey::create_program_address(&seeds_with_bump, program_id)
                 {
-                    // NovaFuzz: Record PDA creation with template and seed info
-                    if let Some(instrumenter) = invoke_context.get_instrumenter() {
-                        if let Some(seed_infos) = seed_infos_opt.clone() {
-                            let template = novafuzz_extract_pda_template(&seeds, invoke_context);
-                            instrumenter.borrow_mut().record_pda_creation(
-                                novafuzz_instrument::PDACreationEvent {
-                                    seeds: seed_infos,
-                                    template,
-                                    result_address: new_address,
-                                    syscall_type:
-                                        novafuzz_instrument::PDASyscallType::FindProgramAddress,
-                                },
-                            );
-                        }
-                    }
-
+                    let template = novafuzz_extract_pda_template(&seeds, invoke_context);
+                    let program_id = *program_id;
                     translate_mut!(
                         memory_mapping,
                         invoke_context.get_check_aligned(),
@@ -1216,6 +1176,31 @@ declare_builtin_function!(
                     );
                     *bump_seed_ref = bump_seed[0];
                     address.copy_from_slice(new_address.as_ref());
+
+                    // NovaFuzz: Record PDA creation only after output writes succeed.
+                    if let (Some(instrumenter), Some(seed_infos)) =
+                        (instrumenter_opt.as_ref(), seed_infos_opt.clone())
+                    {
+                        let derivation_id = instrumenter.borrow_mut().record_pda_creation(
+                            novafuzz_instrument::PDACreationEvent {
+                                program_id,
+                                returned_bump: Some(bump_seed[0]),
+                                seeds: seed_infos,
+                                template,
+                                result_address: new_address,
+                                syscall_type: novafuzz_instrument::PDASyscallType::FindProgramAddress,
+                            },
+                        );
+                        if let Some(vm_taint_state) = vm_taint_state_opt.as_ref() {
+                            let mut vm_taint_state = vm_taint_state.borrow_mut();
+                            instrumenter.borrow_mut().mark_pda_result_bytes(
+                                &mut vm_taint_state,
+                                address_addr,
+                                derivation_id,
+                                new_address,
+                            );
+                        }
+                    }
                     return Ok(0);
                 }
             }
