@@ -1066,6 +1066,7 @@ declare_builtin_function!(
                 instrumenter
                     .borrow_mut()
                     .record_pda_attempt(novafuzz_instrument::PDAAttemptEvent {
+                        program_id,
                         seeds: seed_infos,
                         template: template.clone(),
                         instruction_data,
