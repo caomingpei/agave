@@ -938,8 +938,8 @@ fn novafuzz_extract_seed_info(
     check_aligned: bool,
     instrumenter: Option<&std::rc::Rc<RefCell<novafuzz_instrument::Instrumenter>>>,
     vm_taint_state: Option<&std::rc::Rc<RefCell<novafuzz_instrument::VmTaintState>>>,
-) -> Result<Vec<novafuzz_instrument::PDASeedInfo>, Error> {
-    use novafuzz_instrument::PDASeedInfo;
+) -> Result<Vec<novafuzz_instrument::RawPdaSeed>, Error> {
+    use novafuzz_instrument::RawPdaSeed;
 
     let untranslated_seeds =
         translate_slice::<VmSlice<u8>>(memory_mapping, seeds_addr, seeds_len, check_aligned)?;
@@ -956,7 +956,7 @@ fn novafuzz_extract_seed_info(
                 })
             });
 
-            Ok(PDASeedInfo {
+            Ok(RawPdaSeed {
                 vm_address: vm_slice.ptr, // Extract VM address for taint tracing
                 length: vm_slice.len as usize,
                 value: seed_bytes.to_vec(),
@@ -1063,16 +1063,14 @@ declare_builtin_function!(
                 //     disc_hex,
                 //     instruction_data.len()
                 // );
-                instrumenter
-                    .borrow_mut()
-                    .record_pda_attempt(novafuzz_instrument::PDAAttemptEvent {
-                        program_id,
-                        seeds: seed_infos,
-                        template: template.clone(),
-                        instruction_data,
-                        syscall_type: novafuzz_instrument::PDASyscallType::CreateProgramAddress,
-                        success: create_result.is_ok(),
-                    });
+                instrumenter.borrow_mut().record_pda_attempt(
+                    program_id,
+                    seed_infos,
+                    template.clone(),
+                    instruction_data,
+                    novafuzz_shared::model::pda::PdaSyscallKind::CreateProgramAddress,
+                    create_result.is_ok(),
+                );
             }
         }
 
@@ -1095,14 +1093,12 @@ declare_builtin_function!(
         if let (Some(instrumenter), Some(seed_infos)) = (instrumenter_opt.as_ref(), seed_infos_opt)
         {
             let derivation_id = instrumenter.borrow_mut().record_pda_creation(
-                novafuzz_instrument::PDACreationEvent {
-                    program_id,
-                    returned_bump: None,
-                    seeds: seed_infos,
-                    template,
-                    result_address: new_address,
-                    syscall_type: novafuzz_instrument::PDASyscallType::CreateProgramAddress,
-                },
+                program_id,
+                None,
+                seed_infos,
+                template,
+                new_address,
+                novafuzz_shared::model::pda::PdaSyscallKind::CreateProgramAddress,
             );
             if let Some(vm_taint_state) = vm_taint_state_opt.as_ref() {
                 let mut vm_taint_state = vm_taint_state.borrow_mut();
@@ -1183,14 +1179,12 @@ declare_builtin_function!(
                         (instrumenter_opt.as_ref(), seed_infos_opt.clone())
                     {
                         let derivation_id = instrumenter.borrow_mut().record_pda_creation(
-                            novafuzz_instrument::PDACreationEvent {
-                                program_id,
-                                returned_bump: Some(bump_seed[0]),
-                                seeds: seed_infos,
-                                template,
-                                result_address: new_address,
-                                syscall_type: novafuzz_instrument::PDASyscallType::FindProgramAddress,
-                            },
+                            program_id,
+                            Some(bump_seed[0]),
+                            seed_infos,
+                            template,
+                            new_address,
+                            novafuzz_shared::model::pda::PdaSyscallKind::FindProgramAddress,
                         );
                         if let Some(vm_taint_state) = vm_taint_state_opt.as_ref() {
                             let mut vm_taint_state = vm_taint_state.borrow_mut();
