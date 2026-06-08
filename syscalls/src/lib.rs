@@ -958,7 +958,6 @@ fn novafuzz_extract_seed_info(
 
             Ok(RawPdaSeed {
                 vm_address: vm_slice.ptr, // Extract VM address for taint tracing
-                length: vm_slice.len as usize,
                 value: seed_bytes.to_vec(),
                 taint_snapshot, // NEW: record taint at syscall time
             })
@@ -1024,7 +1023,7 @@ declare_builtin_function!(
         //     println!("Extracted {} seed(s):", seed_infos.len());
         //     for (i, seed_info) in seed_infos.iter().enumerate() {
         //         println!("  Seed {}: vm_addr=0x{:x}, len={}, value={:?}",
-        //             i, seed_info.vm_address, seed_info.length, seed_info.value);
+        //             i, seed_info.vm_address, seed_info.value.len(), seed_info.value);
         //     }
         // } else {
         //     println!("Failed to extract seed info!");
