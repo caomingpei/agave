@@ -328,6 +328,7 @@ impl<'a> CallerAccount<'a> {
 }
 
 struct TranslatedAccount<'a> {
+    pubkey: Pubkey,
     index_in_caller: IndexOfAccount,
     caller_account: CallerAccount<'a>,
     update_caller_account_region: bool,
@@ -873,6 +874,7 @@ where
             )?;
 
             accounts.push(TranslatedAccount {
+                pubkey: *account_key,
                 index_in_caller,
                 caller_account,
                 update_caller_account_region: instruction_account.is_writable() || update_caller,
@@ -905,6 +907,30 @@ fn check_instruction_size(num_accounts: usize, data_len: usize) -> Result<(), Er
         }));
     }
     Ok(())
+}
+
+fn raw_cpi_accounts(
+    instruction: &Instruction,
+    translated_accounts: &[TranslatedAccount<'_>],
+) -> Vec<novafuzz_instrument::RawCpiAccount> {
+    instruction
+        .accounts
+        .iter()
+        .map(|meta| {
+            let owner = translated_accounts
+                .iter()
+                .find(|account| account.pubkey == meta.pubkey)
+                .map(|account| *account.caller_account.owner)
+                .unwrap_or_else(|| Pubkey::new_from_array([0; 32]));
+
+            novafuzz_instrument::RawCpiAccount {
+                pubkey: meta.pubkey,
+                is_signer: meta.is_signer,
+                is_writable: meta.is_writable,
+                owner,
+            }
+        })
+        .collect()
 }
 
 fn check_account_infos(
@@ -994,9 +1020,9 @@ fn cpi_common<S: SyscallInvokeSigned>(
     )?;
     let transaction_context = &invoke_context.transaction_context;
     let instruction_context = transaction_context.get_current_instruction_context()?;
-    let caller_program_id = instruction_context.get_program_key()?;
+    let caller_program_id = *instruction_context.get_program_key()?;
     let signers = S::translate_signers(
-        caller_program_id,
+        &caller_program_id,
         signers_seeds_addr,
         signers_seeds_len,
         memory_mapping,
@@ -1040,11 +1066,17 @@ fn cpi_common<S: SyscallInvokeSigned>(
     };
     callee_result?;
 
-    // NovaFuzz: Record only CPI targets whose callee returned successfully.
+    // NovaFuzz: Record only CPI invocations whose callee returned successfully.
     if let Some(instrumenter) = maybe_instrumenter {
+        let cpi_accounts = raw_cpi_accounts(&instruction, &accounts);
         instrumenter
             .borrow_mut()
-            .push_cpi_program(instruction.program_id);
+            .push_cpi_invocation(novafuzz_instrument::RawCpiInvocation {
+                caller_program_id,
+                program_id: instruction.program_id,
+                delegated_signers: signers.clone(),
+                accounts: cpi_accounts,
+            });
     }
 
     // re-bind to please the borrow checker
