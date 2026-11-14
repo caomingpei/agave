@@ -335,6 +335,11 @@ struct TranslatedAccount<'a> {
     update_caller_account_info: bool,
 }
 
+struct TranslatedSigners {
+    pubkeys: Vec<Pubkey>,
+    seed_groups: Vec<Vec<novafuzz_instrument::RawPdaSeed>>,
+}
+
 /// Implemented by language specific data structure translators
 trait SyscallInvokeSigned {
     fn translate_instruction(
@@ -356,7 +361,13 @@ trait SyscallInvokeSigned {
         signers_seeds_len: u64,
         memory_mapping: &MemoryMapping,
         check_aligned: bool,
-    ) -> Result<Vec<Pubkey>, Error>;
+        vm_taint_state: Option<&novafuzz_instrument::VmTaintState>,
+    ) -> Result<TranslatedSigners, Error>;
+    fn instruction_data_addr(
+        instruction_addr: u64,
+        memory_mapping: &MemoryMapping,
+        check_aligned: bool,
+    ) -> Result<u64, Error>;
 }
 
 declare_builtin_function!(
@@ -469,8 +480,10 @@ impl SyscallInvokeSigned for SyscallInvokeSignedRust {
         signers_seeds_len: u64,
         memory_mapping: &MemoryMapping,
         check_aligned: bool,
-    ) -> Result<Vec<Pubkey>, Error> {
+        vm_taint_state: Option<&novafuzz_instrument::VmTaintState>,
+    ) -> Result<TranslatedSigners, Error> {
         let mut signers = Vec::new();
+        let mut seed_groups = Vec::new();
         if signers_seeds_len > 0 {
             let signers_seeds = translate_slice::<VmSlice<VmSlice<u8>>>(
                 memory_mapping,
@@ -500,11 +513,41 @@ impl SyscallInvokeSigned for SyscallInvokeSignedRust {
                 let signer = Pubkey::create_program_address(&seeds, program_id)
                     .map_err(SyscallError::BadSeeds)?;
                 signers.push(signer);
+                seed_groups.push(
+                    untranslated_seeds
+                        .iter()
+                        .zip(seeds.iter())
+                        .map(|(seed, bytes)| novafuzz_instrument::RawPdaSeed {
+                            vm_address: seed.ptr(),
+                            value: bytes.to_vec(),
+                            taint_snapshot: vm_taint_state
+                                .and_then(|state| state.taint_for_load(seed.ptr())),
+                        })
+                        .collect(),
+                );
             }
-            Ok(signers)
+            Ok(TranslatedSigners {
+                pubkeys: signers,
+                seed_groups,
+            })
         } else {
-            Ok(vec![])
+            Ok(TranslatedSigners {
+                pubkeys: Vec::new(),
+                seed_groups,
+            })
         }
+    }
+
+    fn instruction_data_addr(
+        instruction_addr: u64,
+        memory_mapping: &MemoryMapping,
+        check_aligned: bool,
+    ) -> Result<u64, Error> {
+        Ok(
+            translate_type::<StableInstruction>(memory_mapping, instruction_addr, check_aligned)?
+                .data
+                .as_vaddr(),
+        )
     }
 }
 
@@ -674,7 +717,8 @@ impl SyscallInvokeSigned for SyscallInvokeSignedC {
         signers_seeds_len: u64,
         memory_mapping: &MemoryMapping,
         check_aligned: bool,
-    ) -> Result<Vec<Pubkey>, Error> {
+        vm_taint_state: Option<&novafuzz_instrument::VmTaintState>,
+    ) -> Result<TranslatedSigners, Error> {
         if signers_seeds_len > 0 {
             let signers_seeds = translate_slice::<SolSignerSeedsC>(
                 memory_mapping,
@@ -685,36 +729,61 @@ impl SyscallInvokeSigned for SyscallInvokeSignedC {
             if signers_seeds.len() > MAX_SIGNERS {
                 return Err(Box::new(SyscallError::TooManySigners));
             }
-            Ok(signers_seeds
-                .iter()
-                .map(|signer_seeds| {
-                    let seeds = translate_slice::<SolSignerSeedC>(
-                        memory_mapping,
-                        signer_seeds.addr,
-                        signer_seeds.len,
-                        check_aligned,
-                    )?;
-                    if seeds.len() > MAX_SEEDS {
-                        return Err(Box::new(InstructionError::MaxSeedLengthExceeded) as Error);
-                    }
-                    let seeds_bytes = seeds
+            let mut pubkeys = Vec::with_capacity(signers_seeds.len());
+            let mut seed_groups = Vec::with_capacity(signers_seeds.len());
+            for signer_seeds in signers_seeds.iter() {
+                let seeds = translate_slice::<SolSignerSeedC>(
+                    memory_mapping,
+                    signer_seeds.addr,
+                    signer_seeds.len,
+                    check_aligned,
+                )?;
+                if seeds.len() > MAX_SEEDS {
+                    return Err(Box::new(InstructionError::MaxSeedLengthExceeded) as Error);
+                }
+                let seeds_bytes = seeds
+                    .iter()
+                    .map(|seed| {
+                        translate_slice::<u8>(memory_mapping, seed.addr, seed.len, check_aligned)
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+                let signer = Pubkey::create_program_address(&seeds_bytes, program_id)
+                    .map_err(|err| Box::new(SyscallError::BadSeeds(err)) as Error)?;
+                pubkeys.push(signer);
+                seed_groups.push(
+                    seeds
                         .iter()
-                        .map(|seed| {
-                            translate_slice::<u8>(
-                                memory_mapping,
-                                seed.addr,
-                                seed.len,
-                                check_aligned,
-                            )
+                        .zip(seeds_bytes.iter())
+                        .map(|(seed, bytes)| novafuzz_instrument::RawPdaSeed {
+                            vm_address: seed.addr,
+                            value: bytes.to_vec(),
+                            taint_snapshot: vm_taint_state
+                                .and_then(|state| state.taint_for_load(seed.addr)),
                         })
-                        .collect::<Result<Vec<_>, Error>>()?;
-                    Pubkey::create_program_address(&seeds_bytes, program_id)
-                        .map_err(|err| Box::new(SyscallError::BadSeeds(err)) as Error)
-                })
-                .collect::<Result<Vec<_>, Error>>()?)
+                        .collect(),
+                );
+            }
+            Ok(TranslatedSigners {
+                pubkeys,
+                seed_groups,
+            })
         } else {
-            Ok(vec![])
+            Ok(TranslatedSigners {
+                pubkeys: Vec::new(),
+                seed_groups: Vec::new(),
+            })
         }
+    }
+
+    fn instruction_data_addr(
+        instruction_addr: u64,
+        memory_mapping: &MemoryMapping,
+        check_aligned: bool,
+    ) -> Result<u64, Error> {
+        Ok(
+            translate_type::<SolInstruction>(memory_mapping, instruction_addr, check_aligned)?
+                .data_addr,
+        )
     }
 }
 
@@ -1021,15 +1090,38 @@ fn cpi_common<S: SyscallInvokeSigned>(
     let transaction_context = &invoke_context.transaction_context;
     let instruction_context = transaction_context.get_current_instruction_context()?;
     let caller_program_id = *instruction_context.get_program_key()?;
+    let maybe_instrumenter = invoke_context.get_instrumenter();
+    let vm_taint_state = invoke_context.get_vm_taint_state();
+    let vm_taint_borrow = vm_taint_state.as_ref().map(|state| state.borrow());
     let signers = S::translate_signers(
         &caller_program_id,
         signers_seeds_addr,
         signers_seeds_len,
         memory_mapping,
         check_aligned,
+        vm_taint_borrow.as_deref(),
     )?;
+    let top_level_data = maybe_instrumenter
+        .as_ref()
+        .and_then(|instrumenter| instrumenter.borrow().get_current_instruction_data());
+    let system_transfer_amount = if maybe_instrumenter.is_some() {
+        S::instruction_data_addr(instruction_addr, memory_mapping, check_aligned)
+            .ok()
+            .and_then(|addr| {
+                novafuzz_instrument::system_transfer_amount_evidence(
+                    instruction.program_id,
+                    &instruction.data,
+                    addr,
+                    vm_taint_borrow.as_deref(),
+                    top_level_data.as_deref(),
+                )
+            })
+    } else {
+        None
+    };
+    drop(vm_taint_borrow);
     check_authorized_program(&instruction.program_id, &instruction.data, invoke_context)?;
-    invoke_context.prepare_next_instruction(&instruction, &signers)?;
+    invoke_context.prepare_next_instruction(&instruction, &signers.pubkeys)?;
 
     let mut accounts = S::translate_accounts(
         account_infos_addr,
@@ -1041,7 +1133,6 @@ fn cpi_common<S: SyscallInvokeSigned>(
 
     // Process the callee instruction
     let mut compute_units_consumed = 0;
-    let maybe_instrumenter = invoke_context.get_instrumenter();
     let callee_result = if let Some(instrumenter) = maybe_instrumenter.clone() {
         let should_stub = {
             instrumenter
@@ -1074,8 +1165,10 @@ fn cpi_common<S: SyscallInvokeSigned>(
             .push_cpi_invocation(novafuzz_instrument::RawCpiInvocation {
                 caller_program_id,
                 program_id: instruction.program_id,
-                delegated_signers: signers.clone(),
+                delegated_signers: signers.pubkeys,
                 accounts: cpi_accounts,
+                signer_seed_groups: signers.seed_groups,
+                system_transfer_amount,
             });
     }
 
@@ -1496,9 +1589,11 @@ mod tests {
             1,
             &memory_mapping,
             true, // check_aligned
+            None,
         )
         .unwrap();
-        assert_eq!(signers[0], derived_key);
+        assert_eq!(signers.pubkeys[0], derived_key);
+        assert_eq!(signers.seed_groups[0].last().unwrap().value, [bump_seed]);
     }
 
     #[test]
